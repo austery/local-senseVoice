@@ -36,44 +36,56 @@ class TranscriptionResponse(BaseModel):
     task: str = "transcribe"
     duration: Optional[float] = None
     segments: Optional[List[Segment]] = None
-````
+```
 
 ## 3\. OpenAPI 规范 (The Contract)
 
 这是前端/客户端开发的唯一事实来源 (Source of Truth)。
 
 ```yaml
-openapi: 3.0.3
+openapi: 3.0.0
 info:
-  title: Local SenseVoice API
+  title: Local SenseVoice API (Lean Version)
   version: 1.0.0
-  description: 针对 Mac Silicon 优化的本地语音转录服务
 paths:
   /v1/audio/transcriptions:
     post:
-      summary: 转录音频文件
+      summary: 语音转录 (ASR)
       operationId: createTranscription
       requestBody:
         content:
           multipart/form-data:
             schema:
               type: object
-              required: [file]
+              required: [file]  # 唯一必须的只有文件
               properties:
+                # --- 真正干活的参数 ---
                 file:
                   type: string
                   format: binary
-                  description: 音频文件 (wav, mp3, m4a)
+                  description: 音频文件
                 language:
                   type: string
-                  default: auto
-                clean_tags:
-                  type: boolean
-                  default: true
+                  description: 语言代码 (zh, en, ja, ko, auto)
                 response_format:
                   type: string
-                  enum: [json, verbose_json, text]
+                  enum: [json, text, verbose_json, srt] # 加了 srt 方便字幕
                   default: json
+                clean_tags:  # 你的自定义参数
+                  type: boolean
+                  default: true
+                  description: 是否清洗 <happy> 等情感标签
+                
+                # --- "吉祥物"参数 (为了兼容客户端不报错而存在) ---
+                model:
+                  type: string
+                  default: sense-voice-small
+                temperature:
+                  type: number
+                  description: (Ignored in SenseVoice)
+                prompt:
+                  type: string
+                  description: (Limited support)
       responses:
         '200':
           description: 成功
@@ -81,18 +93,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TranscriptionResponse'
-        '503':
-          description: 服务繁忙 (队列已满)
+
 components:
   schemas:
     TranscriptionResponse:
-      # (参考上文 Pydantic 结构)
+      # 保持这个结构，大多数客户端只看 text
       type: object
       properties:
-        text: 
+        text:
           type: string
-        # ... 其他字段
+        duration:
+          type: number
+        segments:
+          type: array
+          items: 
+            type: object
+            properties:
+              start: {type: number}
+              end: {type: number}
+              text: {type: string}
 ```
+
+
 
 ## 4\. 路由层逻辑
 
