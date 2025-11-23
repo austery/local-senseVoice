@@ -1,6 +1,7 @@
 import torch
 import time
 import os
+import gc
 from funasr import AutoModel
 from typing import Optional, Dict, Any
 
@@ -95,4 +96,31 @@ class SenseVoiceEngine:
         )
         
         # res 是一个列表，取第一个结果
-        return res[0]["text"]
+        text = res[0]["text"]
+
+        # === 内存优化：打扫战场 ===
+        # 防止 MPS (Metal) 显存碎片化，对于 7x24 小时服务至关重要
+        if self.device == "mps":
+            torch.mps.empty_cache()
+        elif self.device == "cuda":
+            torch.cuda.empty_cache()
+
+        return text
+
+    def release(self):
+        """
+        释放显存资源。
+        用于热更新模型或服务关闭时清理资源。
+        """
+        if self.model:
+            print(f"♻️ Releasing model '{self.model_id}'...")
+            del self.model
+            self.model = None
+            
+            if self.device == "mps":
+                torch.mps.empty_cache()
+            elif self.device == "cuda":
+                torch.cuda.empty_cache()
+            
+            gc.collect()
+            print("✅ Model released and memory cleared.")

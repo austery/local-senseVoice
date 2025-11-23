@@ -45,6 +45,8 @@ async def lifespan(app: FastAPI):
     
     print("🛑 System shutting down...")
     # 可以在这里做清理工作，比如等待队列清空 (Graceful Shutdown)
+    if hasattr(app.state, "service"):
+        app.state.service.engine.release()
 
 # === 初始化 FastAPI ===
 app = FastAPI(

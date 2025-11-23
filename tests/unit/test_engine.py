@@ -14,6 +14,18 @@ class TestSenseVoiceEngine:
         with patch("src.core.engine.AutoModel") as mock:
             yield mock
 
+    @pytest.fixture
+    def mock_torch(self):
+        """Mock torch 模块"""
+        with patch("src.core.engine.torch") as mock:
+            yield mock
+
+    @pytest.fixture
+    def mock_gc(self):
+        """Mock gc 模块"""
+        with patch("src.core.engine.gc") as mock:
+            yield mock
+
     def test_initialization(self):
         """测试引擎初始化"""
         engine = SenseVoiceEngine(model_id="test/model", device="cpu")
@@ -94,3 +106,57 @@ class TestSenseVoiceEngine:
         # 验证是否回退到 "auto"
         call_kwargs = mock_instance.generate.call_args.kwargs
         assert call_kwargs["language"] == "auto"
+
+    def test_transcribe_mps_cleanup(self, mock_auto_model, mock_torch):
+        """测试 MPS 环境下的显存清理"""
+        # Setup
+        mock_torch.backends.mps.is_available.return_value = True
+        mock_instance = MagicMock()
+        mock_auto_model.return_value = mock_instance
+        mock_instance.generate.return_value = [{"text": "MPS Test"}]
+        
+        # Initialize with MPS
+        engine = SenseVoiceEngine(device="mps")
+        engine.load()
+        
+        # Execute
+        engine.transcribe_file("test.wav")
+        
+        # Verify cleanup
+        mock_torch.mps.empty_cache.assert_called_once()
+        # Ensure CUDA cleanup was NOT called
+        mock_torch.cuda.empty_cache.assert_not_called()
+
+    def test_transcribe_cuda_cleanup(self, mock_auto_model, mock_torch):
+        """测试 CUDA 环境下的显存清理"""
+        # Setup
+        mock_instance = MagicMock()
+        mock_auto_model.return_value = mock_instance
+        mock_instance.generate.return_value = [{"text": "CUDA Test"}]
+        
+        # Initialize with CUDA
+        engine = SenseVoiceEngine(device="cuda")
+        engine.load()
+        
+        # Execute
+        engine.transcribe_file("test.wav")
+        
+        # Verify cleanup
+        mock_torch.cuda.empty_cache.assert_called_once()
+        mock_torch.mps.empty_cache.assert_not_called()
+
+    def test_release_resources(self, mock_auto_model, mock_torch, mock_gc):
+        """测试资源释放逻辑"""
+        # Setup
+        engine = SenseVoiceEngine(device="mps")
+        engine.load()
+        assert engine.model is not None
+        
+        # Execute release
+        engine.release()
+        
+        # Verify
+        assert engine.model is None
+        mock_torch.mps.empty_cache.assert_called()
+        mock_gc.collect.assert_called_once()
+
