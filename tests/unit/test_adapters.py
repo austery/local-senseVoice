@@ -34,3 +34,16 @@ class TestTextAdapter:
         raw_text = "<|zh|>Test"
         # 当 clean_tags=False 时，应原样返回
         assert clean_sensevoice_tags(raw_text, clean_tags=False) == raw_text
+
+    def test_spaced_tags(self):
+        """测试带空格的 SenseVoice 标签 (e.g. < | zh | >)"""
+        raw_text = "< | zh | > < | NEUTRAL | > < | S pe ech | > < | withi tn | >哦，，智能清洗其实是在一个源头做的。"
+        expected = "哦，智能清洗其实是在一个源头做的。"
+        assert clean_sensevoice_tags(raw_text) == expected
+
+    def test_punctuation_normalization(self):
+        """测试标点符号规范化 (去除重复标点)"""
+        raw_text = "你好，，世界。。Hello,, World.."
+        expected = "你好，世界。Hello, World."
+        assert clean_sensevoice_tags(raw_text) == expected
+
