@@ -1,0 +1,175 @@
+# **🎙️ Local SenseVoice API (Mac Silicon Optimized)**
+
+一个专为 Apple Silicon (M-series) 芯片优化的高性能、本地化语音转录服务。  
+基于阿里 FunASR (SenseVoiceSmall) 模型，提供兼容 OpenAI Whisper 格式的 HTTP 接口。
+
+## **📖 项目简介**
+
+本项目旨在解决在 Mac (M4 Pro/Max) 上运行语音识别时的痛点：**并发导致的显存爆炸 (OOM)** 和 **非标准化的脚本代码**。
+
+我们采用 **Clean Architecture (整洁架构)**，将 API 接口、调度队列和推理引擎严格分离。
+
+### **核心特性**
+
+* **🚀 极速推理**: 利用 Torch MPS (Metal Performance Shaders) 加速，SenseVoiceSmall 模型实现超快转录。  
+* **🛡️ 显存保护**: 内置 asyncio.Queue 生产者-消费者模型，严格串行处理任务，防止并发请求撑爆统一内存。  
+* **🔌 OpenAI 兼容**: 提供与 POST /v1/audio/transcriptions 完全一致的接口，可直接对接现有的 Whisper 客户端。  
+* **🧹 智能清洗**: 自动清洗 SenseVoice 输出的富文本标签（如 \<|zh|\>、\<|NEUTRAL|\>），只返回纯净文本。
+
+## **🏗️ 系统架构 (The Architecture)**
+
+本项目遵循分层设计原则，从外向内依次为：
+
+1. **API Layer (外观层)**: 处理 HTTP 请求，定义 Pydantic 数据契约。  
+2. **Service Layer (调度层)**: 管理异步队列，协调任务调度。  
+3. **Engine Layer (核心层)**: 封装 FunASR 模型，管理 MPS 资源。  
+4. **Adapters (适配层)**: 纯函数工具箱（文本清洗、音频处理）。
+
+### **⚡️ 执行流程 (Execution Flow)**
+
+当一个请求到达时，系统内部的流转如下：
+
+graph TD  
+    A\[Client\] \--\>|POST /transcriptions| B(API Layer / Routes)  
+    B \--\>|1. 校验参数 & 写入临时文件| C{Service Queue}  
+    C \--\>|2. 入队 (非阻塞)| D\[Asyncio Queue (Max 50)\]  
+    B \-.-\>|3. 等待 Future 结果| A  
+      
+    subgraph "Background Worker (Serial)"  
+    D \--\>|4. 消费者取出任务| E\[Engine Layer\]  
+    E \--\>|5. MPS 推理 (SenseVoice)| F\[FunASR Model\]  
+    F \--\>|6. 返回 Raw Text| E  
+    E \--\>|7. 文本清洗 (Adapters)| G\[Result\]  
+    end  
+      
+    G \--\>|8. 唤醒 Future| B  
+    B \--\>|9. 返回 JSON| A
+
+## **🛠️ 环境准备 (Installation)**
+
+### **1\. 系统要求**
+
+* **OS**: macOS 12.3+ (推荐 macOS 15+ 以获得最佳 MPS 性能)  
+* **Python**: 3.11 (本项目严格测试于 3.11 环境)  
+* **System Packages**: 需要 ffmpeg 处理音频。
+
+brew install ffmpeg
+
+### **2\. 安装依赖**
+
+#### **⚡️ 方案 A: 使用 uv (推荐，极速)**
+
+如果你安装了 [uv](https://github.com/astral-sh/uv)，这是最快的方式：
+
+\# 1\. 创建并锁定 Python 3.11 虚拟环境  
+uv venv \--python 3.11
+
+\# 2\. 激活环境  
+source .venv/bin/activate
+
+\# 3\. 极速安装依赖  
+\# funasr 会自动拉取 torch (mps版)  
+uv pip install \-r requirements.txt
+
+#### **🐢 方案 B: 使用 Conda (传统)**
+
+conda create \-n sensevoice python=3.11  
+conda activate sensevoice  
+pip install \-r requirements.txt
+
+*(如果是从零开始，确保 requirements.txt 包含：fastapi, uvicorn, funasr, python-multipart, torch)*
+
+## **🚀 启动服务**
+
+### **方式 A: Python 模块 (推荐)**
+
+这种方式会自动使用 src/main.py 中配置的端口 (50070) 和生命周期管理。
+
+\# 如果使用 uv，可以直接运行，无需手动激活 venv  
+uv run python \-m src.main
+
+### **方式 B: Uvicorn 命令行**
+
+如果你需要自定义 worker 数量（**警告：强烈建议保持 workers=1 以避免显存翻倍**）：
+
+\# 在项目根目录下运行  
+uvicorn src.main:app \--host 0.0.0.0 \--port 50070 \--workers 1
+
+*首次启动时，FunASR 会自动检查并下载模型文件（约 500MB+），请耐心等待。*
+
+## **🧪 测试接口**
+
+服务启动后，你可以通过 curl 或任何 API 工具进行测试。
+
+### **1\. 健康检查**
+
+curl http://localhost:50070/health  
+\# 返回: {"status": "healthy", "model": "iic/SenseVoiceSmall"}
+
+### **2\. 语音转录 (OpenAI 格式)**
+
+curl http://localhost:50070/v1/audio/transcriptions \\  
+  \-F "file=@/path/to/your/audio.mp3" \\  
+  \-F "language=auto" \\  
+  \-F "clean\_tags=true"
+
+**预期输出:**
+
+{  
+  "text": "你好，这是一个测试音频。",  
+  "task": "transcribe",  
+  "language": "zh",  
+  "duration": 5.2,  
+  "segments": \[...\]  
+}
+
+### **3\. 查看自动文档 (Swagger UI)**
+
+浏览器访问：[http://localhost:50070/docs](https://www.google.com/search?q=http://localhost:50070/docs)
+
+## **📂 项目结构**
+
+.  
+├── src  
+│   ├── adapters          \# 纯函数工具 (Clean Code)  
+│   │   └── text.py       \# 正则清洗逻辑  
+│   ├── api               \# 接口层  
+│   │   └── routes.py     \# 路由与 Pydantic 定义  
+│   ├── core              \# 核心业务  
+│   │   └── engine.py     \# FunASR 模型封装 (单例)  
+│   ├── services          \# 服务调度  
+│   │   └── transcription.py \# 队列与并发控制  
+│   └── main.py           \# 程序入口与生命周期  
+├── requirements.txt      \# 依赖列表  
+└── README.md             \# 本文档
+
+## **🧪 运行测试 (Testing)**
+
+本项目包含完整的单元测试和集成测试，使用 `pytest` 框架。
+
+### **1. 运行所有测试**
+
+```bash
+uv run python -m pytest
+```
+
+### **2. 测试分层说明**
+
+*   **Unit Tests (`tests/unit`)**:
+    *   `test_adapters.py`: 测试文本清洗逻辑（纯函数）。
+    *   `test_engine.py`: 测试引擎加载与推理（Mock 掉底层模型，无需下载模型即可运行）。
+    *   `test_service.py`: 测试异步队列调度和临时文件生命周期。
+*   **Integration Tests (`tests/integration`)**:
+    *   `test_api.py`: 启动 FastAPI TestClient，验证 HTTP 接口契约（Mock 掉 Engine）。
+*   **E2E Tests (`tests/e2e`)**:
+    *   `test_full_flow.py`: **真实模型测试**。会加载真实模型并推理（需下载模型，速度较慢）。
+*   **Reliability Tests (`tests/reliability`)**:
+    *   `test_concurrency.py`: 测试高并发下的队列背压 (Backpressure) 和 Worker 错误恢复能力。
+
+
+
+## **⚠️ 注意事项**
+
+1. **队列限制**: 默认队列深度为 50。如果请求超过 50 个，API 会立即返回 503 Service Busy。  
+2. **单例模式**: 由于 M 芯片统一内存特性，我们严格限制模型只加载一次。请勿开启多进程 (workers \> 1\) 模式运行，否则会导致显存成倍消耗。  
+3. **临时文件**: 上传的音频会暂存到磁盘以便 ffmpeg 处理，处理完成后会自动删除。
