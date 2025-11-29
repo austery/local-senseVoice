@@ -18,10 +18,12 @@ class TranscriptionResponse(BaseModel):
     对应 OpenAPI 中的 TranscriptionResponse 定义
     这是返回给客户端的最终结构
     """
-    text: str = Field(description="完整的转录文本")
+    text: str = Field(description="转录文本（根据clean_tags参数决定是否清理）")
     task: str = Field(default="transcribe", description="任务类型")
     language: str = Field(default="zh", description="识别出的语言")
     duration: float = Field(description="音频总时长(秒)")
+    raw_text: Optional[str] = Field(default=None, description="原始转录文本（包含所有SenseVoice标签和语气词）")
+    is_cleaned: bool = Field(default=True, description="text字段是否经过清理")
     # 这里就是你觉得缺失的复杂部分：
     segments: Optional[List[Segment]] = Field(default=None, description="详细的时间戳分段信息")
 
@@ -63,11 +65,13 @@ async def create_transcription(
         result = await service.submit(file, params)
         
         # 4. 构造返回对象 (Data Mapping)
-        # 如果 result 里没有 segments，Pydantic 会自动填 None，不会报错
+        # 如果 result 里没有 segments,Pydantic 会自动填 None，不会报错
         return TranscriptionResponse(
             text=result["text"],
             duration=result.get("duration", 0.0),
             language=language if language != "auto" else "zh", # MVP 简化处理
+            raw_text=result.get("raw_text"),  # 原始文本（包含所有标签）
+            is_cleaned=result.get("is_cleaned", True),  # 是否清理过
             segments=result.get("segments", None) # 如果 Service 以后支持了 segments，这里直接透传
         )
 

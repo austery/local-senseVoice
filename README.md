@@ -104,14 +104,16 @@ uvicorn src.main:app \--host 0.0.0.0 \--port 50070 \--workers 1
 ### **1\. 健康检查**
 
 curl http://localhost:50070/health  
-\# 返回: {"status": "healthy", "model": "iic/SenseVoiceSmall"}
+# 返回: {"status": "healthy", "model": "iic/SenseVoiceSmall"}
 
 ### **2\. 语音转录 (OpenAI 格式)**
 
-curl http://localhost:50070/v1/audio/transcriptions \\  
-  \-F "file=@/path/to/your/audio.mp3" \\  
-  \-F "language=auto" \\  
-  \-F "clean\_tags=true"
+#### **基本调用**
+
+curl http://localhost:50070/v1/audio/transcriptions \
+  -F "file=@/path/to/your/audio.mp3" \
+  -F "language=auto" \
+  -F "clean_tags=true"
 
 **预期输出:**
 
@@ -120,8 +122,62 @@ curl http://localhost:50070/v1/audio/transcriptions \\
   "task": "transcribe",  
   "language": "zh",  
   "duration": 5.2,  
-  "segments": \[...\]  
+  "raw_text": "<|zh|><|NEUTRAL|>你好，这是一个测试音频。",
+  "is_cleaned": true,
+  "segments": null
 }
+
+#### **参数说明**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `file` | File | **必填** | 音频文件 (支持 wav, mp3, m4a 等) |
+| `language` | String | `auto` | 语言代码: `zh`, `en`, `ja`, `ko`, `yue`, `auto` |
+| `clean_tags` | Boolean | `true` | **是否清理 SenseVoice 标签** |
+| `response_format` | String | `json` | 返回格式 (当前仅支持 json) |
+
+#### **clean_tags 参数详解**
+
+SenseVoice 模型原始输出包含丰富的元信息标签，例如：
+- **语言标签**: `<|zh|>`, `<|en|>`
+- **情感标签**: `<|NEUTRAL|>`, `<|HAPPY|>`, `<|ANGRY|>`
+- **事件标签**: `<|Speech|>`, `<|Applause|>`
+
+**模式 1: clean_tags=true (默认，推荐用于生产)**
+
+curl http://localhost:50070/v1/audio/transcriptions \
+  -F "file=@audio.mp3" \
+  -F "clean_tags=true"
+
+返回纯净文本，适合直接展示给用户：
+```json
+{
+  "text": "大家好，欢迎收看本期视频。",
+  "raw_text": "<|zh|><|NEUTRAL|><|Speech|>大家好，欢迎收看本期视频。",
+  "is_cleaned": true
+}
+```
+
+**模式 2: clean_tags=false (保留原始标签，用于分析)**
+
+curl http://localhost:50070/v1/audio/transcriptions \
+  -F "file=@audio.mp3" \
+  -F "clean_tags=false"
+
+返回包含所有标签的原始输出，适合：
+- 情感分析
+- 语言检测验证
+- 调试模型输出
+
+```json
+{
+  "text": "<|zh|><|NEUTRAL|><|Speech|>大家好，欢迎收看本期视频。",
+  "raw_text": "<|zh|><|NEUTRAL|><|Speech|>大家好，欢迎收看本期视频。",
+  "is_cleaned": false
+}
+```
+
+> **💡 提示**: 无论 `clean_tags` 设置为何值，响应中始终包含 `raw_text` 字段，保存完整的模型原始输出。
 
 ### **3\. 查看自动文档 (Swagger UI)**
 

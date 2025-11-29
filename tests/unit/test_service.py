@@ -46,6 +46,9 @@ class TestTranscriptionService:
             # 3. 验证结果
             assert result["text"] == "Mocked Transcription"
             assert "duration" in result
+            assert "raw_text" in result  # 新增：验证 raw_text 字段
+            assert "is_cleaned" in result  # 新增：验证 is_cleaned 字段
+            assert result["is_cleaned"] is True  # 默认应该清理
             
             # 4. 验证 Engine 调用
             service.engine.transcribe_file.assert_called_once()
@@ -59,6 +62,30 @@ class TestTranscriptionService:
                 await worker_task
             except asyncio.CancelledError:
                 pass
+
+    async def test_submit_with_clean_tags_false(self, service, mock_upload_file):
+        """测试 clean_tags=false 的情况"""
+        service.is_running = True
+        worker_task = asyncio.create_task(service._consume_loop())
+        
+        try:
+            # 提交任务，明确设置 clean_tags=False
+            params = {"language": "zh", "clean_tags": False}
+            result = await service.submit(mock_upload_file, params)
+            
+            # 验证结果
+            assert result["text"] == "Mocked Transcription"  # Mock 返回的是已清理的文本
+            assert result["is_cleaned"] is False  # 应该标记为未清理
+            assert result["raw_text"] == "Mocked Transcription"
+            
+        finally:
+            service.is_running = False
+            worker_task.cancel()
+            try:
+                await worker_task
+            except asyncio.CancelledError:
+                pass
+
 
     async def test_queue_full(self, service, mock_upload_file):
         """测试队列满时的拒绝策略"""

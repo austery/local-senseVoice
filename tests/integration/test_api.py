@@ -57,8 +57,46 @@ def test_transcribe_endpoint(client):
 
     assert result["text"] == "Integration Test Result"
     assert "duration" in result
+    assert "raw_text" in result  # 新增：验证 raw_text 字段
+    assert "is_cleaned" in result  # 新增：验证 is_cleaned 字段
 
 def test_transcribe_no_file(client):
     """测试缺少文件的情况"""
     response = client.post("/v1/audio/transcriptions", data={"language": "zh"})
     assert response.status_code == 422 # Validation Error
+
+def test_transcribe_with_clean_tags_false(client):
+    """测试 clean_tags=false 参数"""
+    files = {
+        "file": ("test.wav", b"fake audio bytes", "audio/wav")
+    }
+    data = {
+        "language": "zh",
+        "clean_tags": "false"  # 明确设置为 false
+    }
+    
+    response = client.post("/v1/audio/transcriptions", files=files, data=data)
+    
+    assert response.status_code == 200
+    result = response.json()
+    assert result["text"] == "Integration Test Result"
+    assert result["is_cleaned"] is False  # 应该标记为未清理
+    assert "raw_text" in result
+
+def test_transcribe_default_clean_tags(client):
+    """测试不传 clean_tags 参数时的默认行为"""
+    files = {
+        "file": ("test.wav", b"fake audio bytes", "audio/wav")
+    }
+    data = {
+        "language": "zh"
+        # 不传 clean_tags，应该默认为 true
+    }
+    
+    response = client.post("/v1/audio/transcriptions", files=files, data=data)
+    
+    assert response.status_code == 200
+    result = response.json()
+    assert result["text"] == "Integration Test Result"
+    assert result["is_cleaned"] is True  # 默认应该清理
+    assert "raw_text" in result

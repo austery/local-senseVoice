@@ -112,17 +112,17 @@ class TranscriptionService:
                 )
 
                 # 调用适配器清洗文本
-                cleaned_text = clean_sensevoice_tags(
-                    raw_text, 
-                    clean_tags=job.params.get("clean_tags", True)
-                )
+                # 根据 clean_tags 参数决定是否清理
+                clean_tags = job.params.get("clean_tags", True)
+                cleaned_text = clean_sensevoice_tags(raw_text, clean_tags=clean_tags)
 
                 # 构造结果
                 process_time = time.time() - job.received_at
                 result = {
-                    "text": cleaned_text,
+                    "text": cleaned_text,  # 主要返回文本（根据 clean_tags 决定是否清理）
                     "duration": process_time,
-                    # 如果需要，这里可以保留 raw_text
+                    "raw_text": raw_text,  # 始终保留原始文本，供需要时使用
+                    "is_cleaned": clean_tags  # 标记是否进行了清理
                 }
                 
                 # 唤醒等待的 API 请求
